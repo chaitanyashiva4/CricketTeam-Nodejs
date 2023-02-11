@@ -19,9 +19,6 @@ const initializeDbAndServer = async () => {
 };
 initializeDbAndServer();
 
-// return a list of all the players from the team
-// API 1
-
 const convertDbObject = (objectItem) => {
   return {
     playerId: objectItem.player_id,

@@ -1,91 +1,181 @@
+/*
+ *  Created a Table with name todo in the todoApplication.db file using the CLI.
+ */
+
 const express = require("express");
-const sqlite3 = require("sqlite3");
 const { open } = require("sqlite");
+const sqlite3 = require("sqlite3");
 const path = require("path");
+
+const databasePath = path.join(__dirname, "todoApplication.db");
+
 const app = express();
-const dbPath = path.join(__dirname, "cricketTeam.db");
+
 app.use(express.json());
+
 let database = null;
+
 const initializeDbAndServer = async () => {
   try {
-    database = await open({ filename: dbPath, driver: sqlite3.Database });
-    app.listen(3000, () => {
-      console.log("Server Is running on http://localhost:3000");
+    database = await open({
+      filename: databasePath,
+      driver: sqlite3.Database,
     });
+
+    app.listen(3000, () =>
+      console.log("Server Running at http://localhost:3000/")
+    );
   } catch (error) {
-    console.log(`Data base Error is ${error}`);
+    console.log(`DB Error: ${error.message}`);
     process.exit(1);
   }
 };
+
 initializeDbAndServer();
 
-const convertDbObject = (objectItem) => {
-  return {
-    playerId: objectItem.player_id,
-    playerName: objectItem.player_name,
-    jerseyNumber: objectItem.jersey_number,
-    role: objectItem.role,
-  };
+const hasPriorityAndStatusProperties = (requestQuery) => {
+  return (
+    requestQuery.priority !== undefined && requestQuery.status !== undefined
+  );
 };
 
-app.get("/players/", async (request, response) => {
-  const getPlayersQuery = `select * from cricket_team`;
-  const getPlayersQueryResponse = await database.all(getPlayersQuery);
-  response.send(
-    getPlayersQueryResponse.map((eachPlayer) => convertDbObject(eachPlayer))
-  );
+const hasPriorityProperty = (requestQuery) => {
+  return requestQuery.priority !== undefined;
+};
+
+const hasStatusProperty = (requestQuery) => {
+  return requestQuery.status !== undefined;
+};
+app.get("/todos/", async (request, response) => {
+  let data = null;
+  let getTodosQuery = "";
+  const { search_q = "", priority, status } = request.query;
+
+  switch (true) {
+    case hasPriorityAndStatusProperties(request.query):
+      getTodosQuery = `
+      SELECT
+        *
+      FROM
+        todo 
+      WHERE
+        todo LIKE '%${search_q}%'
+        AND status = '${status}'
+        AND priority = '${priority}';`;
+      break;
+    case hasPriorityProperty(request.query):
+      getTodosQuery = `
+      SELECT
+        *
+      FROM
+        todo 
+      WHERE
+        todo LIKE '%${search_q}%'
+        AND priority = '${priority}';`;
+      break;
+    case hasStatusProperty(request.query):
+      getTodosQuery = `
+      SELECT
+        *
+      FROM
+        todo 
+      WHERE
+        todo LIKE '%${search_q}%'
+        AND status = '${status}';`;
+      break;
+    default:
+      getTodosQuery = `
+      SELECT
+        *
+      FROM
+        todo 
+      WHERE
+        todo LIKE '%${search_q}%';`;
+  }
+
+  data = await database.all(getTodosQuery);
+  response.send(data);
 });
 
-//post a player into data base
-// API 2
+app.get("/todos/:todoId/", async (request, response) => {
+  const { todoId } = request.params;
 
-app.post("/players/", async (request, response) => {
-  const { playerName, jerseyNumber, role } = request.body;
-  const createPlayerQuery = ` insert into cricket_team(player_name,
-    jersey_number,role) 
-    values('${playerName}',${jerseyNumber},'${role}');`;
-  const createPlayerQueryResponse = await database.run(createPlayerQuery);
-  response.send(`Player Added to Team`);
+  const getTodoQuery = `
+    SELECT
+      *
+    FROM
+      todo
+    WHERE
+      id = ${todoId};`;
+  const todo = await database.get(getTodoQuery);
+  response.send(todo);
 });
 
-// get the player details based on the player id
-// API 3
-
-app.get("/players/:playerId/", async (request, response) => {
-  const { playerId } = request.params;
-  const getPlayerDetailsQuery = `select * from cricket_team where 
-  player_id = ${playerId};`;
-  const getPlayerDetailsQueryResponse = await database.get(
-    getPlayerDetailsQuery
-  );
-  response.send(convertDbObject(getPlayerDetailsQueryResponse));
+app.post("/todos/", async (request, response) => {
+  const { id, todo, priority, status } = request.body;
+  const postTodoQuery = `
+  INSERT INTO
+    todo (id, todo, priority, status)
+  VALUES
+    (${id}, '${todo}', '${priority}', '${status}');`;
+  await database.run(postTodoQuery);
+  response.send("Todo Successfully Added");
 });
 
-//update the details of the player using player ID
-// API 4
+app.put("/todos/:todoId/", async (request, response) => {
+  const { todoId } = request.params;
+  let updateColumn = "";
+  const requestBody = request.body;
+  switch (true) {
+    case requestBody.status !== undefined:
+      updateColumn = "Status";
+      break;
+    case requestBody.priority !== undefined:
+      updateColumn = "Priority";
+      break;
+    case requestBody.todo !== undefined:
+      updateColumn = "Todo";
+      break;
+  }
+  const previousTodoQuery = `
+    SELECT
+      *
+    FROM
+      todo
+    WHERE 
+      id = ${todoId};`;
+  const previousTodo = await database.get(previousTodoQuery);
 
-app.put("/players/:playerId/", async (request, response) => {
-  const { playerId } = request.params;
-  const { playerName, jerseyNumber, role } = request.body;
-  const updatePlayerDetailsQuery = `update cricket_team set 
-  player_name = '${playerName}' , jersey_number = ${jerseyNumber} , role = '${role}' 
-  where player_id = ${playerId};`;
-  await database.run(updatePlayerDetailsQuery);
-  response.send("Player Details Updated");
+  const {
+    todo = previousTodo.todo,
+    priority = previousTodo.priority,
+    status = previousTodo.status,
+  } = request.body;
+
+  const updateTodoQuery = `
+    UPDATE
+      todo
+    SET
+      todo='${todo}',
+      priority='${priority}',
+      status='${status}'
+    WHERE
+      id = ${todoId};`;
+
+  await database.run(updateTodoQuery);
+  response.send(`${updateColumn} Updated`);
 });
 
-// delete the player details
-//API 5
-
-app.delete("/players/:playerId/", async (request, response) => {
-  const { playerId } = request.params;
-  const deletePlayerQuery = `
+app.delete("/todos/:todoId/", async (request, response) => {
+  const { todoId } = request.params;
+  const deleteTodoQuery = `
   DELETE FROM
-    cricket_team
+    todo
   WHERE
-    player_id = ${playerId};`;
-  await database.run(deletePlayerQuery);
-  response.send("Player Removed");
+    id = ${todoId};`;
+
+  await database.run(deleteTodoQuery);
+  response.send("Todo Deleted");
 });
 
 module.exports = app;
